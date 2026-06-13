@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PONG ⚡ 2 שחקנים</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Heebo:wght@300;700&display=swap" rel="stylesheet"/>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background:#060610;
+    display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    min-height:100vh;
+    font-family:'Heebo',sans-serif;
+    overflow:hidden;
+    user-select:none;
+  }
+  #scoreboard{
+    display:flex;align-items:center;gap:3rem;
+    margin-bottom:1.2rem;
+    direction:ltr;
+  }
+  .player-name{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:1rem;letter-spacing:3px;
+    color:rgba(255,255,255,0.4);
+    text-align:center;
+  }
+  .score{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:4rem;line-height:1;
+    transition:transform 0.1s,color 0.3s;
+    text-align:center;
+  }
+  #s1{color:#ff3f6c; text-shadow:0 0 20px #ff3f6c,0 0 60px #ff3f6c88;}
+  #s2{color:#3ff0ff; text-shadow:0 0 20px #3ff0ff,0 0 60px #3ff0ff88;}
+  .divider{font-family:'Bebas Neue',sans-serif;font-size:3rem;color:rgba(255,255,255,0.15);}
+  #wrap{position:relative;}
+  canvas{display:block;border-radius:4px;border:1px solid rgba(255,255,255,0.07);}
+  .ctrl{
+    text-align:center;font-size:0.7rem;
+    letter-spacing:2px;color:rgba(255,255,255,0.25);
+    text-transform:uppercase;margin-top:.3rem;
+  }
+  .ctrl span{
+    display:inline-block;
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.15);
+    border-radius:3px;padding:0 0.4rem;
+    font-size:0.75rem;font-weight:700;margin:0 2px;
+  }
+  #overlay{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    background:rgba(6,6,16,0.88);
+    border-radius:4px;gap:1rem;
+  }
+  #overlay.hidden{display:none;}
+  #overlay h1{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:3.5rem;letter-spacing:6px;color:#fff;
+    text-shadow:0 0 30px rgba(255,255,255,0.5);
+  }
+  #overlay p{color:rgba(255,255,255,0.5);font-size:0.85rem;letter-spacing:2px;}
+  #startBtn{
+    margin-top:0.5rem;
+    background:linear-gradient(135deg,#ff3f6c,#ff8c00);
+    color:#fff;border:none;
+    font-family:'Bebas Neue',sans-serif;
+    font-size:1.4rem;letter-spacing:4px;
+    padding:0.8rem 3rem;border-radius:3px;cursor:pointer;
+    transition:transform 0.2s,box-shadow 0.2s;
+    box-shadow:0 0 30px #ff3f6c66;
+  }
+  #startBtn:hover{transform:scale(1.06);box-shadow:0 0 50px #ff3f6caa;}
+  #winMsg{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:4px;}
+</style>
+</head>
+<body>
+
+<!-- scoreboard: שחקן 1 = שמאל, שחקן 2 = ימין, direction:ltr מתאים לקנבס -->
+<div id="scoreboard">
+  <div>
+    <div class="player-name">שחקן 1</div>
+    <div class="score" id="s1">0</div>
+    <div class="ctrl"><span>W</span> <span>S</span></div>
+  </div>
+  <div class="divider">:</div>
+  <div>
+    <div class="player-name">שחקן 2</div>
+    <div class="score" id="s2">0</div>
+    <div class="ctrl"><span>↑</span> <span>↓</span></div>
+  </div>
+</div>
+
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="overlay">
+    <h1>PONG ⚡</h1>
+    <p>ראשון ל-7 ניקודים מנצח</p>
+    <div id="winMsg"></div>
+    <button id="startBtn" onclick="startGame()">התחל משחק</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+const W = Math.min(window.innerWidth - 32, 800);
+const H = Math.round(W * 0.55);
+canvas.width = W; canvas.height = H;
+
+const PAD_W    = Math.max(8,  W * 0.014);
+const PAD_H    = Math.max(60, H * 0.18);
+const PAD_SPEED= H * 0.013;
+const BALL_R   = Math.max(6,  W * 0.012);
+const WIN_SCORE= 7;
+
+// שחקן 1 = מחבט שמאל (ורוד), שחקן 2 = מחבט ימין (תכלת)
+let p1 = { y: H/2-PAD_H/2, score:0, color:'#ff3f6c', glow:'#ff3f6c' };
+let p2 = { y: H/2-PAD_H/2, score:0, color:'#3ff0ff', glow:'#3ff0ff' };
+let ball, running=false, animId=null;
+const trail=[];
+
+// ── קלט מקלדת ──
+const keys={};
+document.addEventListener('keydown', function(e){
+  keys[e.code] = true;
+  // מנע גלילה
+  if(['KeyW','KeyS','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+}, {capture:true, passive:false});
+document.addEventListener('keyup', function(e){
+  keys[e.code] = false;
+}, {capture:true});
+
+function resetBall(dir){
+  const angle = (Math.random()-0.5)*(Math.PI/3);
+  const spd   = W * 0.007;
+  ball = { x:W/2, y:H/2, vx:spd*dir, vy:spd*Math.sin(angle),
+           r:BALL_R, glow:'#fff', speed:spd };
+  trail.length=0;
+}
+
+function startGame(){
+  p1.score=0; p2.score=0;
+  p1.y=H/2-PAD_H/2; p2.y=H/2-PAD_H/2;
+  document.getElementById('s1').textContent='0';
+  document.getElementById('s2').textContent='0';
+  document.getElementById('winMsg').textContent='';
+  document.getElementById('startBtn').textContent='התחל משחק';
+  document.getElementById('overlay').classList.add('hidden');
+  resetBall(Math.random()>.5?1:-1);
+  running=true;
+  if(animId) cancelAnimationFrame(animId);
+  loop();
+}
+
+// ── עדכון ──
+function update(){
+  // שחקן 1: W (למעלה) S (למטה) — e.code = KeyW / KeyS
+  if(keys['KeyW']) p1.y -= PAD_SPEED;
+  if(keys['KeyS']) p1.y += PAD_SPEED;
+  // שחקן 2: חצים
+  if(keys['ArrowUp'])   p2.y -= PAD_SPEED;
+  if(keys['ArrowDown']) p2.y += PAD_SPEED;
+
+  p1.y = Math.max(0, Math.min(H-PAD_H, p1.y));
+  p2.y = Math.max(0, Math.min(H-PAD_H, p2.y));
+
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+  trail.push({x:ball.x, y:ball.y});
+  if(trail.length>14) trail.shift();
+
+  // קירות עליון/תחתון
+  if(ball.y-ball.r<=0){ ball.y=ball.r; ball.vy*=-1; shake(3); }
+  if(ball.y+ball.r>=H){ ball.y=H-ball.r; ball.vy*=-1; shake(3); }
+
+  // התנגשות מחבט שמאל (p1)
+  const p1x = PAD_W*2;
+  if(ball.vx<0
+     && ball.x-ball.r <= p1x+PAD_W
+     && ball.x-ball.r >= p1x-4
+     && ball.y+ball.r >= p1.y
+     && ball.y-ball.r <= p1.y+PAD_H){
+    hitPad(p1, 1);
+  }
+
+  // התנגשות מחבט ימין (p2)
+  const p2x = W - PAD_W*3;
+  if(ball.vx>0
+     && ball.x+ball.r >= p2x
+     && ball.x+ball.r <= p2x+PAD_W+4
+     && ball.y+ball.r >= p2.y
+     && ball.y-ball.r <= p2.y+PAD_H){
+    hitPad(p2, -1);
+  }
+
+  // ניקוד — כדור יוצא משמאל: נקודה לשחקן 2; יוצא מימין: נקודה לשחקן 1
+  if(ball.x+ball.r < 0){ point(2); return; }
+  if(ball.x-ball.r > W){ point(1); return; }
+}
+
+function hitPad(pad, dir){
+  ball.speed = Math.min(ball.speed*1.06, W*0.018);
+  const rel   = ((ball.y - (pad.y+PAD_H/2)) / (PAD_H/2));
+  const angle = rel*(Math.PI/3);
+  ball.vx   = ball.speed * dir;
+  ball.vy   = ball.speed * Math.sin(angle);
+  ball.glow = pad.glow;
+  shake(5);
+}
+
+function point(who){
+  running=false;
+  const p  = who===1 ? p1 : p2;
+  p.score++;
+  const el = document.getElementById('s'+who);
+  el.textContent=p.score;
+  el.style.transform='scale(1.5)';
+  setTimeout(()=>el.style.transform='', 200);
+
+  if(p.score>=WIN_SCORE){
+    document.getElementById('winMsg').textContent=`🏆 שחקן ${who} ניצח!`;
+    document.getElementById('winMsg').style.color=p.color;
+    document.getElementById('startBtn').textContent='משחק חדש';
+    document.getElementById('overlay').classList.remove('hidden');
+    return;
+  }
+  setTimeout(()=>{ resetBall(who===1?-1:1); running=true; loop(); }, 800);
+}
+
+// ── ציור ──
+let shakeAmt=0;
+function shake(n){ shakeAmt=n; }
+
+function draw(){
+  ctx.save();
+  if(shakeAmt>0.3){
+    ctx.translate((Math.random()-.5)*shakeAmt,(Math.random()-.5)*shakeAmt);
+    shakeAmt*=0.65;
+  } else { shakeAmt=0; }
+
+  ctx.fillStyle='#060610';
+  ctx.fillRect(0,0,W,H);
+
+  // קו אמצע
+  ctx.setLineDash([H*.04,H*.04]);
+  ctx.strokeStyle='rgba(255,255,255,0.06)';
+  ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // זנב
+  for(let i=0;i<trail.length;i++){
+    const t=trail[i];
+    const a=(i/trail.length)*0.45;
+    ctx.save();
+    ctx.globalAlpha=a;
+    ctx.fillStyle=ball.glow;
+    ctx.shadowColor=ball.glow; ctx.shadowBlur=10;
+    ctx.beginPath();
+    ctx.arc(t.x,t.y,ball.r*(i/trail.length),0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // כדור
+  ctx.save();
+  ctx.shadowColor=ball.glow; ctx.shadowBlur=35;
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // מחבטים
+  drawPad(PAD_W*2,        p1.y, p1.color);
+  drawPad(W-PAD_W*3,      p2.y, p2.color);
+
+  ctx.restore();
+}
+
+function drawPad(x,y,color){
+  ctx.save();
+  ctx.shadowColor=color; ctx.shadowBlur=25;
+  ctx.fillStyle=color;
+  const r=4;
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+PAD_W-r,y);
+  ctx.arcTo(x+PAD_W,y,x+PAD_W,y+r,r);
+  ctx.lineTo(x+PAD_W,y+PAD_H-r);
+  ctx.arcTo(x+PAD_W,y+PAD_H,x+PAD_W-r,y+PAD_H,r);
+  ctx.lineTo(x+r,y+PAD_H);
+  ctx.arcTo(x,y+PAD_H,x,y+PAD_H-r,r);
+  ctx.lineTo(x,y+r);
+  ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function loop(){
+  if(!running) return;
+  update();
+  draw();
+  animId=requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
